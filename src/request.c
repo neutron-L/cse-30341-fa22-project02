@@ -13,7 +13,16 @@
  * @return  Newly allocated Request structure.
  */
 Request * request_create(const char *method, const char *uri, const char *body) {
-    return NULL;
+    Request * pr = (Request *)malloc(sizeof(Request));
+    if (pr)
+    {
+        pr->method = strdup(method);
+        pr->uri = strdup(uri);
+        pr->body = strdup(body);
+        pr->next = NULL;
+    }
+
+    return pr;
 }
 
 /**
@@ -21,6 +30,13 @@ Request * request_create(const char *method, const char *uri, const char *body) 
  * @param   r           Request structure.
  */
 void request_delete(Request *r) {
+    if (r)
+    {
+        free(r->method);
+        free(r->uri);
+        free(r->body);
+    }
+    free(r);
 }
 
 /**
@@ -35,6 +51,12 @@ void request_delete(Request *r) {
  * @param   fs          Socket file stream.
  */
 void request_write(Request *r, FILE *fs) {
+    fprintf(fs, "%s %s HTTP/1.0\r\n", r->method, r->uri);
+    if (r->body)
+        fprintf(fs, "Content-Length: %d\r\n", strlen(r->body));
+    fprintf(fs, "\r\n");
+    if (r->body)
+        fprintf(fs, "%s", r->body);
 }
 
 /* vim: set expandtab sts=4 sw=4 ts=8 ft=c: */ 
