@@ -31,6 +31,7 @@ typedef pthread_mutex_t		    Mutex;
 #define mutex_init(l, a)            PTHREAD_CHECK(pthread_mutex_init(l, a))
 #define mutex_lock(l)               PTHREAD_CHECK(pthread_mutex_lock(l))
 #define mutex_unlock(l)             PTHREAD_CHECK(pthread_mutex_unlock(l))
+#define mutex_destroy(l)            PTHREAD_CHECK(pthread_mutex_destroy(l))
 
 /* Condition Variables */
 
@@ -38,6 +39,7 @@ typedef pthread_cond_t              Cond;
 #define cond_init(c, a)             PTHREAD_CHECK(pthread_cond_init(c, a))
 #define cond_wait(c, l)             PTHREAD_CHECK(pthread_cond_wait(c, l))
 #define cond_signal(c)              PTHREAD_CHECK(pthread_cond_signal(c))
+#define cond_destroy(c)             PTHREAD_CHECK(pthread_cond_destroy(c))
 
 #endif
 
