@@ -24,7 +24,21 @@ void * mq_puller(void *);
  * @return  Newly allocated Message Queue structure.
  */
 MessageQueue * mq_create(const char *name, const char *host, const char *port) {
-    return NULL;
+    MessageQueue * mq = (MessageQueue *)malloc(sizeof(MessageQueue));
+
+    if (mq)
+    {
+        strcpy(mq->name, name);
+        strcpy(mq->host, host);
+        strcpy(mq->port, port);
+
+        mq->outgoing = queue_create();
+        mq->incoming = queue_create();
+
+        mq->shutdown = false;
+    }
+
+    return mq;
 }
 
 /**
@@ -32,6 +46,13 @@ MessageQueue * mq_create(const char *name, const char *host, const char *port) {
  * @param   mq      Message Queue structure.
  */
 void mq_delete(MessageQueue *mq) {
+    if (mq)
+    {
+        queue_delete(mq->outgoing);
+        queue_delete(mq->incoming);
+    }
+
+    free(mq);
 }
 
 /**
@@ -41,6 +62,9 @@ void mq_delete(MessageQueue *mq) {
  * @param   body    Message body to publish.
  */
 void mq_publish(MessageQueue *mq, const char *topic, const char *body) {
+    char uri[64];
+    sprintf(uri, "/topic/%s", topic);
+    queue_push(mq->outgoing, ("PUT", uri, body));
 }
 
 /**
@@ -49,7 +73,13 @@ void mq_publish(MessageQueue *mq, const char *topic, const char *body) {
  * @return  Newly allocated message body (must be freed).
  */
 char * mq_retrieve(MessageQueue *mq) {
-    return NULL;
+    char uri[64];
+    sprintf(uri, "/topic/%s", mq->name);
+    queue_push(mq->outgoing, ("GET", uri, NULL));
+
+    Request * r = queue_pop(mq->incoming);
+
+    return strdup(r->body);
 }
 
 /**
@@ -58,6 +88,9 @@ char * mq_retrieve(MessageQueue *mq) {
  * @param   topic   Topic string to subscribe to.
  **/
 void mq_subscribe(MessageQueue *mq, const char *topic) {
+    char uri[64];
+    sprintf(uri, "/subscription/%s/%s", mq->name, topic);
+    queue_push(mq->outgoing, ("PUT", uri, NULL));
 }
 
 /**
@@ -66,6 +99,9 @@ void mq_subscribe(MessageQueue *mq, const char *topic) {
  * @param   topic   Topic string to unsubscribe from.
  **/
 void mq_unsubscribe(MessageQueue *mq, const char *topic) {
+    char uri[64];
+    sprintf(uri, "/subscription/%s/%s", mq->name, topic);
+    queue_push(mq->outgoing, ("DELETE", uri, NULL));
 }
 
 /**
@@ -75,6 +111,9 @@ void mq_unsubscribe(MessageQueue *mq, const char *topic) {
  * @param   mq      Message Queue structure.
  */
 void mq_start(MessageQueue *mq) {
+    Thread pusher, puller;
+    thread_create(&pusher, NULL, mq_pusher, NULL);
+    thread_create(&puller, NULL, mq_puller, NULL);
 }
 
 /**
@@ -99,6 +138,13 @@ bool mq_shutdown(MessageQueue *mq) {
  * Pusher thread takes messages from outgoing queue and sends them to server.
  **/
 void * mq_pusher(void *arg) {
+    while (true)
+    {
+        // takes message
+
+        // send to server
+    }
+
     return NULL;
 }
 
@@ -107,6 +153,13 @@ void * mq_pusher(void *arg) {
  * incoming queue.
  **/
 void * mq_puller(void *arg) {
+    while (true)
+    {
+        // get messages from server
+
+        // put into queue
+    }
+
     return NULL;
 }
 
