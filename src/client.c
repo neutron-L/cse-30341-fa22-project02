@@ -14,6 +14,8 @@
 void * mq_pusher(void *);
 void * mq_puller(void *);
 
+void check_response(MessageQueue *, char ** body);
+
 /* External Functions */
 
 /**
@@ -36,6 +38,10 @@ MessageQueue * mq_create(const char *name, const char *host, const char *port) {
         mq->incoming = queue_create();
 
         mq->shutdown = false;
+
+        mq->fs = socket_connect(mq->host, mq->port);
+        mutex_init(&mq->fs_lock, NULL);
+        mutex_init(&mq->sd_lock, NULL);
     }
 
     return mq;
@@ -50,6 +56,8 @@ void mq_delete(MessageQueue *mq) {
     {
         queue_delete(mq->outgoing);
         queue_delete(mq->incoming);
+        mutex_destroy(&mq->fs_lock);
+        mutex_destroy(&mq->sd_lock);
     }
 
     free(mq);
@@ -65,6 +73,7 @@ void mq_publish(MessageQueue *mq, const char *topic, const char *body) {
     char uri[64];
     sprintf(uri, "/topic/%s", topic);
     queue_push(mq->outgoing, ("PUT", uri, body));
+    check_response(mq, NULL);
 }
 
 /**
@@ -77,9 +86,10 @@ char * mq_retrieve(MessageQueue *mq) {
     sprintf(uri, "/topic/%s", mq->name);
     queue_push(mq->outgoing, ("GET", uri, NULL));
 
-    Request * r = queue_pop(mq->incoming);
-
-    return strdup(r->body);
+    char * msg;
+    
+    check_response(mq, &msg);
+    return msg;
 }
 
 /**
@@ -91,6 +101,8 @@ void mq_subscribe(MessageQueue *mq, const char *topic) {
     char uri[64];
     sprintf(uri, "/subscription/%s/%s", mq->name, topic);
     queue_push(mq->outgoing, ("PUT", uri, NULL));
+
+    check_response(mq, NULL);
 }
 
 /**
@@ -102,6 +114,8 @@ void mq_unsubscribe(MessageQueue *mq, const char *topic) {
     char uri[64];
     sprintf(uri, "/subscription/%s/%s", mq->name, topic);
     queue_push(mq->outgoing, ("DELETE", uri, NULL));
+
+    check_response(mq, NULL);
 }
 
 /**
@@ -111,9 +125,8 @@ void mq_unsubscribe(MessageQueue *mq, const char *topic) {
  * @param   mq      Message Queue structure.
  */
 void mq_start(MessageQueue *mq) {
-    Thread pusher, puller;
-    thread_create(&pusher, NULL, mq_pusher, NULL);
-    thread_create(&puller, NULL, mq_puller, NULL);
+    thread_create(&mq->pusher, NULL, mq_pusher, NULL);
+    thread_create(&mq->puller, NULL, mq_puller, NULL);
 }
 
 /**
@@ -122,6 +135,12 @@ void mq_start(MessageQueue *mq) {
  * @param   mq      Message Queue structure.
  */
 void mq_stop(MessageQueue *mq) {
+    mutex_lock(&mq->sd_lock);
+    mq->shutdown = true;
+    mutex_unlock(&mq->sd_lock);
+
+    thread_join(mq->pusher, NULL);
+    thread_join(mq->puller, NULL);
 }
 
 /**
@@ -129,7 +148,11 @@ void mq_stop(MessageQueue *mq) {
  * @param   mq      Message Queue structure.
  */
 bool mq_shutdown(MessageQueue *mq) {
-    return false;
+    mutex_lock(&mq->sd_lock);
+    bool res = mq->shutdown;
+    mutex_unlock(&mq->sd_lock);
+
+    return res;
 }
 
 /* Internal Functions */
@@ -138,11 +161,19 @@ bool mq_shutdown(MessageQueue *mq) {
  * Pusher thread takes messages from outgoing queue and sends them to server.
  **/
 void * mq_pusher(void *arg) {
-    while (true)
+    MessageQueue * mq = (MessageQueue *)arg;
+    Request * r;
+
+    while (!mq_shutdown(mq))
     {
         // takes message
+        r = queue_pop(mq->outgoing);
 
         // send to server
+        mutex_lock(&mq->fs_lock);
+        request_write(r, mq->fs);
+        mutex_unlock(&mq->fs_lock);
+        request_delete(r);
     }
 
     return NULL;
@@ -153,14 +184,47 @@ void * mq_pusher(void *arg) {
  * incoming queue.
  **/
 void * mq_puller(void *arg) {
+    MessageQueue * mq = (MessageQueue *)arg;
+    Request * r;
+
+    char buffer[512];
+    char http[64];
+    char code[64];
+    char code_msg[64];
+
     while (true)
     {
         // get messages from server
-
+        mutex_lock(&mq->fs_lock);
+        fgets(buffer, 512, mq->fs);
+        sscanf(buffer, "%s %s %s\r\n", http, code, code_msg);
+        while (fgets(buffer, 512, mq->fs) && !streq(buffer, "\r\n"))
+            continue;
+        fgets(buffer, 512, mq->fs);
+        r = request_create(code, code_msg, buffer);
+        mutex_unlock(&mq->fs_lock);
         // put into queue
+
+        queue_push(mq->incoming, r);
     }
 
     return NULL;
+}
+
+
+/* my aux-function */
+void check_response(MessageQueue * mq, char ** body)
+{
+    Request * r = queue_pop(mq->incoming);
+
+    if (streq(r->method, "200"))
+        printf("OK");
+    else
+        printf("%s\n", r->uri);
+
+    if (body)
+        *body = strdup(r->body);
+    request_delete(r);
 }
 
 /* vim: set expandtab sts=4 sw=4 ts=8 ft=c: */

@@ -16,9 +16,9 @@ Request * request_create(const char *method, const char *uri, const char *body) 
     Request * pr = (Request *)malloc(sizeof(Request));
     if (pr)
     {
-        pr->method = strdup(method);
-        pr->uri = strdup(uri);
-        pr->body = strdup(body);
+        pr->method = method ? strdup(method) : NULL;
+        pr->uri = uri ? strdup(uri) : NULL;
+        pr->body = body ? strdup(body) : NULL;
         pr->next = NULL;
     }
 

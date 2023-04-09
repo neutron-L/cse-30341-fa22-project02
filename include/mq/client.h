@@ -20,7 +20,11 @@ struct MessageQueue {
     Queue*  incoming;		// Requests received from server
     bool    shutdown;		// Whether or not to shutdown
 
+    FILE * fs;
+    Thread pusher, puller;
     // TODO: Add any necessary thread and synchronization primitives
+    Mutex fs_lock;
+    Mutex sd_lock;
 };
 
 MessageQueue *	mq_create(const char *name, const char *host, const char *port);
