@@ -1,7 +1,7 @@
 /* queue.c: Concurrent Queue of Requests */
 
 #include "mq/queue.h"
-
+#include <assert.h>
 /**
  * Create queue structure.
  * @return  Newly allocated queue structure.
@@ -25,11 +25,14 @@ Queue * queue_create() {
  * @param   q       Queue structure.
  */
 void queue_delete(Queue *q) {
+    printf("Current function: %s\n", __FUNCTION__);
+
     if (q)
     {
-        Request * cur, * next;
-        for (cur = q->head; cur; cur = next)
+        Request * cur = q->head, * next;
+        while (cur)
         {
+            printf("delete: %p\n", cur);
             next = cur->next;
             request_delete(cur);
             cur = next;
@@ -74,9 +77,13 @@ Request * queue_pop(Queue *q) {
     mutex_lock(&q->lock);  // lock
 
     while (q->size == 0)
+    {
+        printf("wait no empty\n");
         cond_wait(&q->notempty, &q->lock);
-    
+    }
+    printf("now no empty\n");
     // dequeue
+    assert(q->head);
     r = q->head;
     q->head = q->head->next;
 
