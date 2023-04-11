@@ -21,8 +21,10 @@ struct MessageQueue {
     bool    shutdown;		// Whether or not to shutdown
 
     Thread pusher, puller;
+    FILE * fs;
     // TODO: Add any necessary thread and synchronization primitives
     Mutex sd_lock;
+    Mutex fs_lock;
 };
 
 MessageQueue *	mq_create(const char *name, const char *host, const char *port);

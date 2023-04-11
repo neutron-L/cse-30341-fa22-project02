@@ -1,4 +1,6 @@
 /* client.c: Message Queue Client */
+#include <unistd.h>
+#include <fcntl.h>
 
 #include "mq/client.h"
 #include "mq/logging.h"
@@ -38,8 +40,15 @@ MessageQueue * mq_create(const char *name, const char *host, const char *port) {
         mq->incoming = queue_create();
 
         mq->shutdown = false;
+        mq->fs = socket_connect(mq->host, mq->port);
+
+        int fd = fileno(mq->fs);  
+        int flags = fcntl(fd, F_GETFL, 0);
+        flags |= O_NONBLOCK;
+        fcntl(fd, F_SETFL, flags);
 
         mutex_init(&mq->sd_lock, NULL);
+        mutex_init(&mq->fs_lock, NULL);
     }
 
     return mq;
@@ -50,15 +59,12 @@ MessageQueue * mq_create(const char *name, const char *host, const char *port) {
  * @param   mq      Message Queue structure.
  */
 void mq_delete(MessageQueue *mq) {
-    printf("Current function: %s\n", __FUNCTION__);
-    if (!mq_shutdown(mq))
-        mq_stop(mq);
     if (mq)
     {
-        printf("delete queue\n");
         queue_delete(mq->outgoing);
         queue_delete(mq->incoming);
         mutex_destroy(&mq->sd_lock);
+        mutex_destroy(&mq->fs_lock);
     }
 
     free(mq);
@@ -71,8 +77,6 @@ void mq_delete(MessageQueue *mq) {
  * @param   body    Message body to publish.
  */
 void mq_publish(MessageQueue *mq, const char *topic, const char *body) {
-    printf("Current function: %s\n", __FUNCTION__);
-
     char uri[64];
     sprintf(uri, "/topic/%s", topic);
     queue_push(mq->outgoing, request_create("PUT", uri, body));
@@ -85,10 +89,8 @@ void mq_publish(MessageQueue *mq, const char *topic, const char *body) {
  * @return  Newly allocated message body (must be freed).
  */
 char * mq_retrieve(MessageQueue *mq) {
-    printf("Current function: %s\n", __FUNCTION__);
-
     char uri[64];
-    sprintf(uri, "/topic/%s", mq->name);
+    sprintf(uri, "/queue/%s", mq->name);
     queue_push(mq->outgoing, request_create("GET", uri, NULL));
 
     char * msg;
@@ -103,8 +105,6 @@ char * mq_retrieve(MessageQueue *mq) {
  * @param   topic   Topic string to subscribe to.
  **/
 void mq_subscribe(MessageQueue *mq, const char *topic) {
-    printf("Current function: %s\n", __FUNCTION__);
-
     char uri[64];
     sprintf(uri, "/subscription/%s/%s", mq->name, topic);
     queue_push(mq->outgoing, request_create("PUT", uri, NULL));
@@ -118,8 +118,6 @@ void mq_subscribe(MessageQueue *mq, const char *topic) {
  * @param   topic   Topic string to unsubscribe from.
  **/
 void mq_unsubscribe(MessageQueue *mq, const char *topic) {
-    printf("Current function: %s\n", __FUNCTION__);
-
     char uri[64];
     sprintf(uri, "/subscription/%s/%s", mq->name, topic);
     queue_push(mq->outgoing, request_create("DELETE", uri, NULL));
@@ -134,11 +132,8 @@ void mq_unsubscribe(MessageQueue *mq, const char *topic) {
  * @param   mq      Message Queue structure.
  */
 void mq_start(MessageQueue *mq) {
-    printf("Current function: %s\n", __FUNCTION__);
-
     thread_create(&mq->pusher, NULL, mq_pusher, mq);
     thread_create(&mq->puller, NULL, mq_puller, mq);
-    printf("pusher: %ld\npuller: %ld\n", mq->pusher, mq->puller);
 }
 
 /**
@@ -147,21 +142,16 @@ void mq_start(MessageQueue *mq) {
  * @param   mq      Message Queue structure.
  */
 void mq_stop(MessageQueue *mq) {
-    printf("get lock: %s\n", __FUNCTION__);
-    printf("Current function: %s\n", __FUNCTION__);
-
     mutex_lock(&mq->sd_lock);
     mq->shutdown = true;
     mutex_unlock(&mq->sd_lock);
-    printf("unlock: %d %s\n", mq->shutdown, __FUNCTION__);
-
 
     // send sentinel messages
     queue_push(mq->outgoing, request_create(SENTINEL, NULL, NULL));
 
     thread_join(mq->pusher, NULL);
     thread_join(mq->puller, NULL);
-    printf("End stop\n");
+    printf("stop\n");
 }
 
 /**
@@ -169,8 +159,6 @@ void mq_stop(MessageQueue *mq) {
  * @param   mq      Message Queue structure.
  */
 bool mq_shutdown(MessageQueue *mq) {
-    printf("Current function: %s\n", __FUNCTION__);
-
     mutex_lock(&mq->sd_lock);
     bool res = mq->shutdown;
     mutex_unlock(&mq->sd_lock);
@@ -184,8 +172,6 @@ bool mq_shutdown(MessageQueue *mq) {
  * Pusher thread takes messages from outgoing queue and sends them to server.
  **/
 void * mq_pusher(void *arg) {
-    printf("Current function: %s\n", __FUNCTION__);
-
     MessageQueue * mq = (MessageQueue *)arg;
     Request * r;
 
@@ -199,10 +185,12 @@ void * mq_pusher(void *arg) {
             break;
 
         // send to server
-        FILE * fs = socket_connect(mq->host, mq->port);
-        request_write(r, fs);
+        mutex_lock(&mq->fs_lock);
+        printf("pusher write: %s\n", r->method);
+        request_write(r, mq->fs);
         request_delete(r);
-        fclose(fs);
+        mutex_unlock(&mq->fs_lock);
+
         printf("pusher end: \n");
     }
     fprintf(stdout, "pusher exit\n");
@@ -215,8 +203,6 @@ void * mq_pusher(void *arg) {
  * incoming queue.
  **/
 void * mq_puller(void *arg) {
-    printf("Current function: %s\n", __FUNCTION__);
-
     MessageQueue * mq = (MessageQueue *)arg;
     Request * r;
 
@@ -227,21 +213,21 @@ void * mq_puller(void *arg) {
 
     while (!mq_shutdown(mq))
     {
+        // if there are no messages send to server
+        // wait...
         // get messages from server
-        FILE *fs = socket_connect(mq->host, mq->port);
-        if (!fs)
-            continue;
-        printf("start puller &&%p\n", fs);        
-        if (fgets(buffer, 512, fs))
+        mutex_lock(&mq->fs_lock);
+
+        if (fgets(buffer, 512, mq->fs))
         {
-            printf("buffer: %s\n", buffer); 
+            printf("buffer: %s", buffer); 
             sscanf(buffer, "%s %s %s\r\n", http, code, code_msg);
-            while (fgets(buffer, 512, fs) && !streq(buffer, "\r\n"))
+            while (fgets(buffer, 512, mq->fs) && !streq(buffer, "\r\n"))
             {
-                printf("buffer: %s\n", buffer);
+                printf("buffer: %s", buffer);
                 continue;
             }
-            if (fgets(buffer, 512, fs))
+            if (fgets(buffer, 512, mq->fs))
                 r = request_create(code, code_msg, buffer);
             else
                 r = request_create(code, code_msg, NULL);    
@@ -249,12 +235,11 @@ void * mq_puller(void *arg) {
         else
             r = NULL;
         
-        fclose(fs);
+        mutex_unlock(&mq->fs_lock);
         // put into queue
 
         if (r)
             queue_push(mq->incoming, r);
-        printf("puller end\n");
     }
 
     printf("puller exit\n");
@@ -269,7 +254,7 @@ void check_response(MessageQueue * mq, char ** body)
     Request * r = queue_pop(mq->incoming);
 
     if (streq(r->method, "200"))
-        printf("OK");
+        printf("OK\n");
     else
         printf("%s\n", r->uri);
 
