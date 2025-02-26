@@ -78,10 +78,8 @@ Request * queue_pop(Queue *q) {
 
     while (q->size == 0)
     {
-        printf("wait no empty\n");
         cond_wait(&q->notempty, &q->lock);
     }
-    printf("now no empty\n");
     // dequeue
     assert(q->head);
     r = q->head;

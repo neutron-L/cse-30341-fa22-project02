@@ -63,3 +63,9 @@ brainstorming questions **are not required**.
 
 [Project 02]:       https://www3.nd.edu/~pbui/teaching/cse.30341.fa22/project02.html
 [CSE.30341.FA22]:   https://www3.nd.edu/~pbui/teaching/cse.30341.fa22/
+
+## Problem
+每一次发送的请求，server都会返回一个响应，这个响应的格式和retrieve请求的返回的格式是一样的，在incoming里面无法区分.
+修改后，除了get之外的请求，由pusher接收响应，反之通过条件变量通知puller接收响应
+但server似乎有点问题，无法有时候无法接收到client发送的消息……
+或者可以让pusher把retrieve的请求的序号通过队列保存，由puller取出，如果是GET请求的响应则保留

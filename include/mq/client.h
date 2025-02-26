@@ -4,6 +4,7 @@
 #define CLIENT_H
 
 #include "mq/queue.h"
+#include "thread.h"
 
 #include <netdb.h>
 #include <stdbool.h>
@@ -25,6 +26,7 @@ struct MessageQueue {
     // TODO: Add any necessary thread and synchronization primitives
     Mutex sd_lock;
     Mutex fs_lock;
+    Cond retv_cond;
 };
 
 MessageQueue *	mq_create(const char *name, const char *host, const char *port);
