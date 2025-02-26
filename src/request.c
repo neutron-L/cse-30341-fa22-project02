@@ -51,9 +51,9 @@ void request_delete(Request *r) {
  * @param   fs          Socket file stream.
  */
 void request_write(Request *r, FILE *fs) {
-    fprintf(fs, "%s %s HTTP/1.1\r\n", r->method, r->uri);
+    fprintf(fs, "%s %s HTTP/1.0\r\n", r->method, r->uri);
     if (r->body)
-        fprintf(fs, "Content-Length: %d\r\n", strlen(r->body));
+        fprintf(fs, "Content-Length: %ld\r\n", strlen(r->body));
     fprintf(fs, "\r\n");
     if (r->body)
         fprintf(fs, "%s", r->body);
